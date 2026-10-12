@@ -1,45 +1,97 @@
 <?php
 
-namespace App\Controllers;
+namespace App\Controllers\Api;
 
-use CodeIgniter\Controller;
-use CodeIgniter\HTTP\CLIRequest;
-use CodeIgniter\HTTP\IncomingRequest;
-use CodeIgniter\HTTP\RequestInterface;
-use CodeIgniter\HTTP\ResponseInterface;
-use Psr\Log\LoggerInterface;
+use App\Controllers\BaseController;
+use CodeIgniter\Model;
 
-abstract class BaseController extends Controller
+class BaseApiController extends BaseController
 {
-    /**
-     * Instance of the main Request object.
-     *
-     * @var CLIRequest|IncomingRequest
-     */
-    protected $request;
+    protected Model $model;
 
-    /**
-     * An array of helpers to be loaded automatically upon
-     * class instantiation. These helpers will be available
-     * to all other controllers that extend BaseController.
-     *
-     * @var list<string>
-     */
-    protected $helpers = [];
+    public function index()
+    {
+        return $this->response->setJSON([
+            'status' => true,
+            'data' => $this->model->findAll()
+        ]);
+    }
 
-    /**
-     * Be sure to declare properties on controller classes.
-     *
-     * @return void
-     */
-    public function initController(
-        RequestInterface $request,
-        ResponseInterface $response,
-        LoggerInterface $logger
-    ) {
-        parent::initController($request, $response, $logger);
+    public function show($id)
+    {
+        $data = $this->model->find($id);
 
-        // Preload any models, libraries, etc, here.
-        // E.g.: $this->session = service('session');
+        if (!$data) {
+            return $this->response->setStatusCode(404)->setJSON([
+                'status' => false,
+                'message' => 'Data tidak ditemukan'
+            ]);
+        }
+
+        return $this->response->setJSON([
+            'status' => true,
+            'data' => $data
+        ]);
+    }
+
+    public function create()
+    {
+        $data = $this->request->getJSON(true);
+
+        if (!$data) {
+            return $this->response->setStatusCode(400)->setJSON([
+                'status' => false,
+                'message' => 'Data tidak boleh kosong'
+            ]);
+        }
+
+        if (!$this->model->insert($data)) {
+            return $this->response->setStatusCode(400)->setJSON([
+                'status' => false,
+                'errors' => $this->model->errors()
+            ]);
+        }
+
+        return $this->response->setStatusCode(201)->setJSON([
+            'status' => true,
+            'message' => 'Data berhasil ditambahkan',
+            'id' => $this->model->getInsertID()
+        ]);
+    }
+
+    public function update($id)
+    {
+        $data = $this->request->getJSON(true);
+
+        if (!$this->model->find($id)) {
+            return $this->response->setStatusCode(404)->setJSON([
+                'status' => false,
+                'message' => 'Data tidak ditemukan'
+            ]);
+        }
+
+        $this->model->update($id, $data);
+
+        return $this->response->setJSON([
+            'status' => true,
+            'message' => 'Data berhasil diperbarui'
+        ]);
+    }
+
+    public function delete($id)
+    {
+        if (!$this->model->find($id)) {
+            return $this->response->setStatusCode(404)->setJSON([
+                'status' => false,
+                'message' => 'Data tidak ditemukan'
+            ]);
+        }
+
+        $this->model->delete($id);
+
+        return $this->response->setJSON([
+            'status' => true,
+            'message' => 'Data berhasil dihapus'
+        ]);
     }
 }
