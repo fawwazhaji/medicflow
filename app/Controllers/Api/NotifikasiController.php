@@ -2,13 +2,12 @@
 
 namespace App\Controllers\Api;
 
-use App\Controllers\BaseController;
-use CodeIgniter\HTTP\ResponseInterface;
+use App\Models\NotifikasiModel;
 
-class NotifikasiController extends BaseController
+class NotifikasiController extends BaseApiController
 {
-    public function index()
+    public function __construct()
     {
-        //
+        $this->model = new NotifikasiModel();
     }
 }

@@ -2,13 +2,12 @@
 
 namespace App\Controllers\Api;
 
-use App\Controllers\BaseController;
-use CodeIgniter\HTTP\ResponseInterface;
+use App\Models\OtpVerifikasiModel;
 
-class OtpVerifikasiController extends BaseController
+class OtpVerifikasiController extends BaseApiController
 {
-    public function index()
+    public function __construct()
     {
-        //
+        $this->model = new OtpVerifikasiModel();
     }
 }

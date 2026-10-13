@@ -2,13 +2,12 @@
 
 namespace App\Controllers\Api;
 
-use App\Controllers\BaseController;
-use CodeIgniter\HTTP\ResponseInterface;
+use App\Models\LogAktivitasModel;
 
-class LogAktivitasController extends BaseController
+class LogAktivitasController extends BaseApiController
 {
-    public function index()
+    public function __construct()
     {
-        //
+        $this->model = new LogAktivitasModel();
     }
 }

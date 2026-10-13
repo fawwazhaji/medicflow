@@ -2,13 +2,12 @@
 
 namespace App\Controllers\Api;
 
-use App\Controllers\BaseController;
-use CodeIgniter\HTTP\ResponseInterface;
+use App\Models\ResepModel;
 
-class ResepController extends BaseController
+class ResepController extends BaseApiController
 {
-    public function index()
+    public function __construct()
     {
-        //
+        $this->model = new ResepModel();
     }
 }
