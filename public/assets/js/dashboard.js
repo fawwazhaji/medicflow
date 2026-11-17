@@ -114,11 +114,13 @@ async function refreshPatientUpdates() {
         }
         const appointmentForm = state.page === "appointments" && document.getElementById("appointmentForm");
         const hasUnsavedAppointment = appointmentForm && Object.keys(formObject(appointmentForm)).length > 0;
+        const historyFilterFocused = document.activeElement && document.activeElement.closest && document.activeElement.closest(".history-filters");
         const shouldRender = (state.page === "overview" && (appointmentsChanged || notificationsChanged)) ||
             (state.page === "notifications" && notificationsChanged) ||
             (state.page === "prescriptions" && (prescriptionsChanged || notificationsChanged)) ||
             (state.page === "appointments" && (appointmentsChanged || notificationsChanged) && !hasUnsavedAppointment);
-        if (shouldRender) renderPage();
+        if (shouldRender && historyFilterFocused && state.page === "appointments") renderAppointmentHistoryResults();
+        else if (shouldRender) renderPage();
     } catch (error) {
         if (!patientPollingErrorShown) showToast(error.message, true);
         patientPollingErrorShown = true;
@@ -191,6 +193,21 @@ function handleForm(id, callback) {
     });
 }
 
+function bindCheckInButtons(root) {
+    (root || document).querySelectorAll("[data-check-in]").forEach(function (button) {
+        button.addEventListener("click", async function () {
+            button.disabled = true;
+            try {
+                const result = await request("pasien/pendaftaran/" + button.dataset.checkIn + "/check-in", { method: "POST", body: {} });
+                await refreshPage(result.message || "Check-in berhasil.");
+            } catch (error) {
+                showToast(error.message, true);
+                button.disabled = false;
+            }
+        });
+    });
+}
+
 function bindPageActions() {
     if (state.role === "pasien") {
         document.querySelectorAll("[data-enable-device-notifications]").forEach(function (button) {
@@ -216,18 +233,8 @@ function bindPageActions() {
             await request("pasien/pendaftaran", { method: "POST", body: data });
             await refreshPage("Pendaftaran antrean berhasil dibuat.");
         });
-        document.querySelectorAll("[data-check-in]").forEach(function (button) {
-            button.addEventListener("click", async function () {
-                button.disabled = true;
-                try {
-                    const result = await request("pasien/pendaftaran/" + button.dataset.checkIn + "/check-in", { method: "POST", body: {} });
-                    await refreshPage(result.message || "Check-in berhasil.");
-                } catch (error) {
-                    showToast(error.message, true);
-                    button.disabled = false;
-                }
-            });
-        });
+        bindCheckInButtons(document);
+        bindPatientHistoryFilters();
         handleForm("profileForm", async function (form) {
             await request("pasien/me", { method: "PUT", body: formObject(form) });
             await refreshPage("Profil berhasil diperbarui.");

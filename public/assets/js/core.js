@@ -165,7 +165,16 @@ const pageTitles = {
     queueHistory: "Riwayat antrean", stock: "Stok & mutasi", pickup: "Pengambilan obat",
     staff: "Akun staf", resources: "Kelola data"
 };
-const state = { role: null, user: null, page: "overview", data: {} };
+const state = {
+    role: null,
+    user: null,
+    page: "overview",
+    data: {},
+    historyFilters: {
+        appointments: { status: "semua", checkin: "semua", doctor: "semua", from: "", to: "", query: "" },
+        examinations: { from: "", to: "", query: "" }
+    }
+};
 let patientUpdateTimer = null;
 let patientNotificationIds = new Set();
 let patientPollingErrorShown = false;

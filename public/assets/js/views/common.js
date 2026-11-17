@@ -50,7 +50,7 @@ function profileField(label, name, value, type, required) {
     return '<div class="field-wrap"><label class="field-label" for="profile-' + name + '">' + escapeHtml(label) + '</label><input class="field" id="profile-' + name + '" name="' + name + '" type="' + type + '" value="' + escapeHtml(value) + '"' + (required ? " required" : "") + '></div>';
 }
 
-function appointmentTable(items, schedules) {
+function appointmentTable(items, schedules, emptyText) {
     const rows = items.map(function (item) {
         const schedule = schedules.find(function (entry) { return String(entry.id_jadwal) === String(item.id_jadwal); }) || {};
         const scheduleLabel = (schedule.nama_dokter || "Jadwal #" + item.id_jadwal) + (schedule.nama_poli ? " • " + schedule.nama_poli : "");
@@ -65,7 +65,7 @@ function appointmentTable(items, schedules) {
             : "";
         return '<tr><td><span class="cell-primary">' + formatDate(item.tanggal_kunjungan) + '</span><span class="cell-secondary">' + escapeHtml(scheduleLabel) + '</span>' + estimate + '</td><td>#' + escapeHtml(item.nomor_antrean) + '</td><td>' + statusBadge(item.status_antrean) + '</td><td>' + checkIn + '</td></tr>';
     });
-    return table(["Tanggal & dokter", "Nomor antrean", "Status", "Check-in"], rows, "Belum ada pendaftaran antrean.");
+    return table(["Tanggal & dokter", "Nomor antrean", "Status", "Check-in"], rows, emptyText || "Belum ada pendaftaran antrean.");
 }
 
 function notificationList(items) {
