@@ -16,6 +16,7 @@ use Endroid\QrCode\Encoding\Encoding;
 use Endroid\QrCode\ErrorCorrectionLevel;
 use Endroid\QrCode\QrCode;
 use Endroid\QrCode\Writer\PngWriter;
+use Endroid\QrCode\Writer\SvgWriter;
 
 class ResepController extends BaseApiController
 {
@@ -175,10 +176,16 @@ class ResepController extends BaseApiController
             foregroundColor: new Color(6, 78, 59),
             backgroundColor: new Color(255, 255, 255),
         );
-        $image = (new PngWriter())->write($qrCode)->getString();
+        if (extension_loaded('gd')) {
+            $image = (new PngWriter())->write($qrCode)->getString();
+            $contentType = 'image/png';
+        } else {
+            $image = (new SvgWriter())->write($qrCode)->getString();
+            $contentType = 'image/svg+xml';
+        }
 
         return $this->response
-            ->setContentType('image/png')
+            ->setHeader('Content-Type', $contentType)
             ->setHeader('Cache-Control', 'no-store, private')
             ->setHeader('X-Content-Type-Options', 'nosniff')
             ->setBody($image);

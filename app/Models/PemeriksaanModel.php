@@ -17,6 +17,8 @@ class PemeriksaanModel extends Model
         'suhu_tubuh',
         'berat_badan',
         'tinggi_badan',
+        'laju_respirasi',
+        'alergi_obat',
         'diagnosis',
         'tindakan',
         'catatan_dokter',

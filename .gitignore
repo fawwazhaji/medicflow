@@ -64,6 +64,9 @@ writable/uploads/*
 writable/debugbar/*
 !writable/debugbar/index.html
 
+writable/tunnel/*
+!writable/tunnel/index.html
+
 php_errors.log
 
 #-------------------------

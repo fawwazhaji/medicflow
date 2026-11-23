@@ -17,6 +17,8 @@ class TriasePerawatModel extends Model
         'suhu_tubuh',
         'berat_badan',
         'tinggi_badan',
+        'laju_respirasi',
+        'alergi_obat',
         'catatan_perawat',
         'waktu_triase',
     ];

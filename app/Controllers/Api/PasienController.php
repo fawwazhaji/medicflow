@@ -144,20 +144,21 @@ class PasienController extends BaseApiController
     public function updateClinicalHistory(int $appointmentId)
     {
         $input = $this->request->getJSON(true);
-        if (!is_array($input) || array_diff(array_keys($input), ['alergi', 'obat_aktif']) !== [] || $input === []) {
+        if (!is_array($input) || array_diff(array_keys($input), ['alergi', 'alergi_obat', 'obat_aktif']) !== [] || $input === []) {
             return $this->response->setStatusCode(400)->setJSON([
                 'status' => false, 'message' => 'Data alergi atau obat aktif tidak valid',
             ]);
         }
 
         $data = [];
-        foreach (['alergi', 'obat_aktif'] as $field) {
+        foreach (['alergi', 'alergi_obat', 'obat_aktif'] as $field) {
             if (!array_key_exists($field, $input)) {
                 continue;
             }
-            if ($input[$field] !== null && (!is_string($input[$field]) || strlen($input[$field]) > 5000)) {
+            $limit = $field === 'alergi_obat' ? 2000 : 5000;
+            if ($input[$field] !== null && (!is_string($input[$field]) || strlen($input[$field]) > $limit)) {
                 return $this->response->setStatusCode(400)->setJSON([
-                    'status' => false, 'message' => 'Catatan alergi atau obat aktif maksimal 5000 karakter',
+                    'status' => false, 'message' => 'Catatan alergi, alergi obat, atau obat aktif terlalu panjang',
                 ]);
             }
             $data[$field] = is_string($input[$field]) && trim($input[$field]) !== ''
@@ -221,7 +222,7 @@ class PasienController extends BaseApiController
         $sql = 'SELECT pendaftaran_poli.id_pasien FROM pendaftaran_poli ' .
             'JOIN jadwal_dokter ON jadwal_dokter.id_jadwal = pendaftaran_poli.id_jadwal ' .
             'WHERE pendaftaran_poli.id_pendaftaran = ? AND jadwal_dokter.id_dokter = ? ' .
-            "AND pendaftaran_poli.status_antrean IN ('Dipanggil', 'Masuk Ruangan')" .
+            "AND pendaftaran_poli.status_antrean IN ('Siap Diperiksa', 'Dipanggil', 'Masuk Ruangan')" .
             ($lock ? ' FOR UPDATE' : '');
 
         $appointment = db_connect()->query($sql, [$appointmentId, $doctorId])->getRowArray();
@@ -236,6 +237,7 @@ class PasienController extends BaseApiController
         return [
             'id_pasien' => $patientId,
             'alergi' => $record['alergi'] ?? null,
+            'alergi_obat' => $record['alergi_obat'] ?? null,
             'obat_aktif' => $record['obat_aktif'] ?? null,
             'updated_at' => $record['updated_at'] ?? null,
         ];

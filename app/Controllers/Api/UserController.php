@@ -172,4 +172,26 @@ class UserController extends BaseApiController
 
         return $this->response->setJSON(['status' => true, 'message' => 'User diperbarui']);
     }
+
+    public function delete($id)
+    {
+        $actor = $this->currentUser();
+        if ((int) $id === (int) ($actor['id_user'] ?? 0)) {
+            return $this->response->setStatusCode(409)->setJSON([
+                'status' => false,
+                'message' => 'Akun yang sedang digunakan tidak dapat dihapus',
+            ]);
+        }
+
+        try {
+            return parent::delete($id);
+        } catch (\Throwable $exception) {
+            log_message('error', $exception->getMessage());
+
+            return $this->response->setStatusCode(409)->setJSON([
+                'status' => false,
+                'message' => 'Akun masih terhubung ke data klinik. Nonaktifkan akun jika riwayatnya harus tetap ada.',
+            ]);
+        }
+    }
 }

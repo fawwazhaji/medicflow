@@ -16,7 +16,7 @@ class App extends BaseConfig
      *
      * E.g., http://example.com/
      */
-    public string $baseURL = 'http://localhost:8080/';
+    public string $baseURL = 'http://127.0.0.1:8081/';
 
     /**
      * Allowed Hostnames in the Site URL other than the hostname in the baseURL.
@@ -199,4 +199,49 @@ class App extends BaseConfig
      * @see http://www.w3.org/TR/CSP/
      */
     public bool $CSPEnabled = false;
+
+    public function __construct()
+    {
+        parent::__construct();
+
+        $this->applyShareHost();
+    }
+
+    /**
+     * While MEDICFLOW_TUNNEL is enabled in development, build the site URL
+     * from the address the visitor actually used. Localhost and a Cloudflare
+     * quick-tunnel host are the only names accepted.
+     */
+    private function applyShareHost(): void
+    {
+        if (! defined('ENVIRONMENT') || ENVIRONMENT !== 'development' || ! $this->shareTunnelEnabled()) {
+            return;
+        }
+
+        $httpHost = $_SERVER['HTTP_HOST'] ?? '';
+        if (! is_string($httpHost) || ! preg_match('/\A[a-z0-9.-]+(?::\d{1,5})?\z/i', $httpHost)) {
+            return;
+        }
+
+        $host = strtolower(preg_replace('/:\d+$/', '', $httpHost) ?? '');
+        $local = $host === '127.0.0.1' || $host === 'localhost';
+        $shared = str_ends_with($host, '.trycloudflare.com') && $host !== '.trycloudflare.com';
+        if (! $local && ! $shared) {
+            return;
+        }
+
+        $forwarded = strtolower(trim(explode(',', (string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''))[0]));
+        $scheme = $forwarded === 'https' ? 'https' : 'http';
+        $this->baseURL = $scheme . '://' . $httpHost . '/';
+        if (! in_array($host, $this->allowedHostnames, true)) {
+            $this->allowedHostnames[] = $host;
+        }
+    }
+
+    private function shareTunnelEnabled(): bool
+    {
+        $value = env('MEDICFLOW_TUNNEL');
+
+        return $value === true || $value === 1 || $value === '1' || $value === 'true';
+    }
 }

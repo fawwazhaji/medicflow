@@ -18,11 +18,13 @@ const roleMenus = {
         ["queue", "▦", "Daftar pasien"],
         ["queueHistory", "◷", "Riwayat antrean"],
         ["schedules", "◷", "Jadwal praktik"],
-        ["examinations", "♡", "Pemeriksaan"]
+        ["examinations", "♡", "Pemeriksaan"],
+        ["examHistory", "◷", "Riwayat pemeriksaan"]
     ],
     perawat: [
         ["overview", "⌂", "Ringkasan"],
-        ["triage", "♡", "Pemeriksaan awal"]
+        ["triage", "♡", "Pemeriksaan awal"],
+        ["queueHistory", "◷", "Riwayat pemeriksaan"]
     ],
     farmasi: [
         ["overview", "⌂", "Ringkasan"],
@@ -33,8 +35,11 @@ const roleMenus = {
     ],
     admin: [
         ["overview", "⌂", "Ringkasan"],
-        ["staff", "♙", "Akun staf"],
-        ["resources", "▦", "Kelola data"]
+        ["staff", "♙", "Akun"],
+        ["schedules", "◷", "Jadwal"],
+        ["stock", "▥", "Stok obat"],
+        ["resources", "▦", "Kelola data"],
+        ["reports", "☰", "Laporan"]
     ]
 };
 let qrScanner = null;
@@ -108,7 +113,7 @@ async function request(path, options) {
 }
 
 async function requestImage(path) {
-    const headers = new Headers({ Accept: "image/png" });
+    const headers = new Headers({ Accept: "image/png, image/svg+xml" });
     const token = sessionStorage.getItem(tokenKey);
     if (token) headers.set("Authorization", "Bearer " + token);
 
@@ -137,6 +142,49 @@ async function requestImage(path) {
     return response.blob();
 }
 
+async function downloadFile(path, fallbackName) {
+    const headers = new Headers();
+    const token = sessionStorage.getItem(tokenKey);
+    if (token) headers.set("Authorization", "Bearer " + token);
+
+    let response;
+    try {
+        response = await fetch(apiBase.replace(/\/$/, "") + "/" + path.replace(/^\//, ""), { headers: headers });
+    } catch (_error) {
+        throw new Error("Tidak dapat menghubungi server. Periksa koneksi lalu coba lagi.");
+    }
+
+    if (response.status === 401) {
+        sessionStorage.removeItem(tokenKey);
+        sessionStorage.removeItem(userKey);
+        if (document.body.classList.contains("app-page")) window.location.assign(window.MEDICFLOW_LOGIN_URL);
+        throw new Error("Sesi berakhir. Silakan masuk kembali.");
+    }
+    if (!response.ok) {
+        let message = "Laporan gagal diunduh.";
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+            const payload = await response.json();
+            message = payload.message || message;
+        }
+        throw new Error(message);
+    }
+
+    const blob = await response.blob();
+    const header = response.headers.get("Content-Disposition") || "";
+    const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header);
+    const plain = /filename="([^"]+)"/i.exec(header);
+    const filename = encoded ? decodeURIComponent(encoded[1]) : (plain ? plain[1] : fallbackName);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+}
+
 function formObject(form) {
     const object = {};
     new FormData(form).forEach(function (value, key) {
@@ -163,9 +211,18 @@ const pageTitles = {
     prescriptions: "Resep obat", notifications: "Notifikasi", profile: "Profil saya",
     queue: "Daftar pasien", schedules: "Jadwal praktik", triage: "Pemeriksaan awal", medicines: "Katalog obat",
     queueHistory: "Riwayat antrean", stock: "Stok & mutasi", pickup: "Pengambilan obat",
-    staff: "Akun staf", resources: "Kelola data"
+    staff: "Akun staf", resources: "Kelola data", reports: "Laporan"
 };
-const state = { role: null, user: null, page: "overview", data: {} };
+const state = {
+    role: null,
+    user: null,
+    page: "overview",
+    data: {},
+    historyFilters: {
+        appointments: { status: "semua", doctor: "semua", from: "", to: "", query: "" },
+        examinations: { from: "", to: "", query: "" }
+    }
+};
 let patientUpdateTimer = null;
 let patientNotificationIds = new Set();
 let patientPollingErrorShown = false;

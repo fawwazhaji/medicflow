@@ -2,7 +2,7 @@
 <html lang="id">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#047857">
     <title>Masuk - MedicFlow</title>
     <link rel="stylesheet" href="<?= esc(parse_url(base_url('assets/css/app.css'), PHP_URL_PATH)) ?>">
@@ -14,17 +14,20 @@
                 <span class="brand-mark">+</span>
                 <span>MedicFlow</span>
             </a>
-            <p class="eyebrow">LAYANAN KESEHATAN TERINTEGRASI</p>
-            <h1>Perawatan yang lebih teratur, dimulai di sini.</h1>
-            <p class="intro-copy">Kelola antrean, pemeriksaan, resep, dan informasi obat dari satu tempat.</p>
-            <div class="intro-note"><span>✓</span> Akses aman sesuai peran Anda</div>
+            <p class="eyebrow">KLINIK MEDICFLOW</p>
+            <h1>Masuk untuk melanjutkan layanan Anda.</h1>
+            <ul class="intro-points">
+                <li>Pasien mengatur kunjungan dan melihat resep</li>
+                <li>Perawat, dokter, dan farmasi bekerja sesuai tugasnya</li>
+                <li>Admin mengelola data dan laporan klinik</li>
+            </ul>
         </section>
 
         <section class="auth-card">
             <div class="card-heading">
-                <span class="eyebrow">SELAMAT DATANG</span>
-                <h2>Masuk ke MedicFlow</h2>
-                <p>Gunakan akun aktif yang telah terdaftar.</p>
+                <span class="eyebrow">AKUN</span>
+                <h2>Masuk</h2>
+                <p>Isi username dan password yang sudah terdaftar.</p>
             </div>
             <form id="loginForm">
                 <label class="field-label" for="username">Username</label>

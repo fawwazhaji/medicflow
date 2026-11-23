@@ -41,7 +41,146 @@ class JadwalDokterController extends BaseApiController
 
         return $this->response->setJSON([
             'status' => true,
-            'data'   => $this->model->where('id_dokter', $doctorId)->findAll(),
+            'data'   => db_connect()->table('jadwal_dokter')
+                ->select('jadwal_dokter.*, poliklinik.nama_poli')
+                ->join('dokter', 'dokter.id_dokter = jadwal_dokter.id_dokter')
+                ->join('poliklinik', 'poliklinik.id_poli = dokter.id_poli', 'left')
+                ->where('jadwal_dokter.id_dokter', $doctorId)
+                ->orderBy('jadwal_dokter.id_jadwal', 'ASC')
+                ->get()
+                ->getResultArray(),
+        ]);
+    }
+
+    public function create()
+    {
+        $input = $this->request->getJSON(true);
+        $doctorId = is_array($input) ? filter_var($input['id_dokter'] ?? null, FILTER_VALIDATE_INT) : false;
+        $data = is_array($input) ? $this->validatedSchedule($input) : null;
+
+        if ($doctorId === false || $doctorId < 1 || $data === null || !(new DokterModel())->find($doctorId)) {
+            return $this->response->setStatusCode(400)->setJSON([
+                'status' => false, 'message' => 'Dokter, hari, jam, atau kuota jadwal tidak valid',
+            ]);
+        }
+
+        $data['id_dokter'] = $doctorId;
+        $data['is_active'] = $data['is_active'] ?? 1;
+        if ((int) $data['is_active'] === 1 && $this->hasScheduleConflict($doctorId, $data)) {
+            return $this->response->setStatusCode(409)->setJSON([
+                'status' => false, 'message' => 'Jadwal bertabrakan dengan jadwal praktik lain pada hari dan jam tersebut',
+            ]);
+        }
+
+        if (!$this->model->insert($data)) {
+            return $this->response->setStatusCode(400)->setJSON([
+                'status' => false, 'errors' => $this->model->errors(),
+            ]);
+        }
+
+        $id = (int) $this->model->getInsertID();
+        $this->recordOperationalActivity('Admin membuat jadwal', 'jadwal_dokter', $id, 'Admin membuat jadwal dokter.');
+
+        return $this->response->setStatusCode(201)->setJSON([
+            'status' => true, 'message' => 'Jadwal berhasil ditambahkan', 'id' => $id,
+        ]);
+    }
+
+    public function update($id)
+    {
+        $schedule = $this->model->find($id);
+        $input = $this->request->getJSON(true);
+
+        if (!$schedule) {
+            return $this->response->setStatusCode(404)->setJSON([
+                'status' => false, 'message' => 'Jadwal tidak ditemukan',
+            ]);
+        }
+
+        if (!is_array($input) || $input === []) {
+            return $this->response->setStatusCode(400)->setJSON([
+                'status' => false, 'message' => 'Data pembaruan tidak valid',
+            ]);
+        }
+
+        $merged = array_merge($schedule, $input);
+        $data = $this->validatedSchedule($merged);
+        $doctorId = filter_var($merged['id_dokter'] ?? null, FILTER_VALIDATE_INT);
+
+        if ($data === null || $doctorId === false || $doctorId < 1 || !(new DokterModel())->find($doctorId)) {
+            return $this->response->setStatusCode(400)->setJSON([
+                'status' => false, 'message' => 'Dokter, hari, jam, atau kuota jadwal tidak valid',
+            ]);
+        }
+
+        $data['id_dokter'] = $doctorId;
+        if ((int) ($data['is_active'] ?? $schedule['is_active']) === 1 && $this->hasScheduleConflict($doctorId, array_merge($schedule, $data), (int) $id)) {
+            return $this->response->setStatusCode(409)->setJSON([
+                'status' => false, 'message' => 'Jadwal bertabrakan dengan jadwal praktik lain pada hari dan jam tersebut',
+            ]);
+        }
+
+        if (!$this->model->update($id, $data)) {
+            return $this->response->setStatusCode(400)->setJSON([
+                'status' => false, 'errors' => $this->model->errors(),
+            ]);
+        }
+
+        $this->recordOperationalActivity('Admin mengubah jadwal', 'jadwal_dokter', (int) $id, 'Admin mengubah jadwal dokter.');
+
+        return $this->response->setJSON(['status' => true, 'message' => 'Jadwal diperbarui']);
+    }
+
+    public function delete($id)
+    {
+        if (!$this->model->find($id)) {
+            return $this->response->setStatusCode(404)->setJSON([
+                'status' => false, 'message' => 'Jadwal tidak ditemukan',
+            ]);
+        }
+
+        try {
+            return parent::delete($id);
+        } catch (\Throwable $exception) {
+            log_message('error', $exception->getMessage());
+
+            return $this->response->setStatusCode(409)->setJSON([
+                'status' => false,
+                'message' => 'Jadwal masih dipakai pendaftaran pasien dan tidak dapat dihapus. Nonaktifkan jadwal sebagai gantinya.',
+            ]);
+        }
+    }
+
+    public function contactAdmin()
+    {
+        $doctorId = $this->linkedProfileId(new DokterModel(), 'id_dokter');
+        $input = $this->request->getJSON(true);
+        $message = is_array($input) && is_string($input['pesan'] ?? null) ? trim($input['pesan']) : '';
+
+        if ($doctorId === null) {
+            return $this->response->setStatusCode(403)->setJSON([
+                'status' => false, 'message' => 'Profil dokter tidak ditemukan',
+            ]);
+        }
+
+        if ($message === '' || strlen($message) > 1000) {
+            return $this->response->setStatusCode(400)->setJSON([
+                'status' => false, 'message' => 'Tulis pesan untuk admin, paling banyak 1000 karakter',
+            ]);
+        }
+
+        $user = $this->currentUser();
+        $doctor = (new DokterModel())->find($doctorId);
+        $this->recordOperationalActivity(
+            'Dokter menghubungi admin',
+            'users',
+            (int) ($user['id_user'] ?? 0),
+            ($doctor['nama_dokter'] ?? $user['nama_lengkap'] ?? 'Dokter') . ': ' . $message
+        );
+
+        return $this->response->setStatusCode(201)->setJSON([
+            'status' => true,
+            'message' => 'Pesan terkirim ke admin',
         ]);
     }
 

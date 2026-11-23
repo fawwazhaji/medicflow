@@ -20,9 +20,11 @@ $routes->group('api/pasien', ['filter' => 'jwt:pasien'], static function ($route
     $routes->put('me', 'Api\PasienController::updateMe');
     $routes->get('pendaftaran', 'Api\PendaftaranPoliController::mine');
     $routes->post('pendaftaran', 'Api\PendaftaranPoliController::register');
+    $routes->put('pendaftaran/(:num)', 'Api\PendaftaranPoliController::updateMine/$1');
     $routes->post('pendaftaran/(:num)/check-in', 'Api\PendaftaranPoliController::checkIn/$1');
     $routes->get('riwayat-klinis', 'Api\PasienController::clinicalHistoryMine');
     $routes->get('pemeriksaan', 'Api\PemeriksaanController::mine');
+    $routes->get('laporan/riwayat-pemeriksaan', 'Api\LaporanController::patientExaminations');
     $routes->get('resep', 'Api\ResepController::mine');
     $routes->get('resep/(:num)', 'Api\ResepController::showMine/$1');
     $routes->get('resep/(:num)/qr', 'Api\ResepController::qrForMine/$1');
@@ -40,6 +42,7 @@ $routes->group('api/dokter', ['filter' => 'jwt:dokter'], static function ($route
     $routes->get('jadwal', 'Api\JadwalDokterController::mine');
     $routes->post('jadwal', 'Api\JadwalDokterController::createForDoctor');
     $routes->put('jadwal/(:num)', 'Api\JadwalDokterController::updateForDoctor/$1');
+    $routes->post('hubungi-admin', 'Api\JadwalDokterController::contactAdmin');
     $routes->get('pemeriksaan', 'Api\PemeriksaanController::doctorIndex');
     $routes->post('pemeriksaan', 'Api\PemeriksaanController::createForDoctor');
     $routes->put('pemeriksaan/(:num)', 'Api\PemeriksaanController::updateForDoctor/$1');
@@ -48,6 +51,7 @@ $routes->group('api/dokter', ['filter' => 'jwt:dokter'], static function ($route
 
 $routes->group('api/perawat', ['filter' => 'jwt:perawat'], static function ($routes) {
     $routes->get('antrian', 'Api\PerawatController::queue');
+    $routes->get('antrian/riwayat', 'Api\PerawatController::history');
     $routes->post('antrian/(:num)/triase', 'Api\PerawatController::recordTriage/$1');
 });
 
@@ -63,6 +67,7 @@ $routes->group('api/farmasi', ['filter' => 'jwt:farmasi'], static function ($rou
     $routes->post('mutasi-stok', 'Api\MutasiStokController::create');
     $routes->post('pengambilan-obat/preview', 'Api\PengambilanObatController::preview');
     $routes->post('pengambilan-obat', 'Api\PengambilanObatController::dispense');
+    $routes->get('laporan/pengeluaran-obat', 'Api\LaporanController::medicine');
 });
 
 $routes->group('api/admin', ['filter' => 'jwt:admin'], static function ($routes) {
@@ -92,7 +97,10 @@ $routes->group('api/admin', ['filter' => 'jwt:admin'], static function ($routes)
         $routes->delete($path . '/(:num)', $target . '::delete/$1');
     }
 
+    $routes->get('laporan/kunjungan', 'Api\LaporanController::visits');
+    $routes->get('laporan/pengeluaran-obat', 'Api\LaporanController::medicine');
     $routes->get('mutasi-stok', 'Api\MutasiStokController::index');
+    $routes->post('mutasi-stok', 'Api\MutasiStokController::create');
     $routes->get('log-aktivitas', 'Api\LogAktivitasController::index');
     $routes->get('log-aktivitas/(:num)', 'Api\LogAktivitasController::show/$1');
 });

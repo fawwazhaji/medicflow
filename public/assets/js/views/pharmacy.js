@@ -10,12 +10,17 @@ function renderPharmacy() {
         const days = (new Date(item.tanggal_kedaluwarsa + "T00:00:00") - new Date(new Date().toDateString())) / 86400000;
         return days <= 30;
     });
-    const inventoryWarnings = '<div class="info-card"><strong>Peringatan stok & kedaluwarsa</strong><p>' +
-        lowStock.length + ' obat mencapai atau di bawah stok minimum; ' + expiring.length +
-        ' obat kedaluwarsa dalam 30 hari atau sudah kedaluwarsa. Periksa katalog sebelum menyiapkan resep.</p></div>';
+    const inventoryWarnings = '<div class="info-card' + (lowStock.length || expiring.length ? " is-warning" : "") + '"><strong>Stok dan kedaluwarsa</strong><p>' +
+        lowStock.length + ' obat sudah mencapai batas minimum. ' + expiring.length +
+        ' obat kedaluwarsa dalam 30 hari atau sudah lewat. Periksa katalog sebelum meracik.</p></div>';
     if (state.page === "overview") {
         return '<div class="page-intro"><div><h2>Operasional farmasi</h2><p>Kelola obat, proses resep, dan catat penyerahan obat kepada pasien.</p></div></div>' +
-            statCards([["Resep masuk", recipes.filter(function (item) { return item.status_resep === "Antrean Farmasi"; }).length], ["Sedang diracik", recipes.filter(function (item) { return item.status_resep === "Sedang Diracik"; }).length], ["Obat terdaftar", medicines.length], ["Stok menipis", lowStock.length]]) +
+            statCards([
+                ["Resep masuk", recipes.filter(function (item) { return item.status_resep === "Antrean Farmasi"; }).length, "Belum mulai diracik"],
+                ["Sedang diracik", recipes.filter(function (item) { return item.status_resep === "Sedang Diracik"; }).length, "Obat sedang disiapkan"],
+                ["Obat di katalog", medicines.length, "Termasuk yang tidak aktif"],
+                ["Stok menipis", lowStock.length, "Mencapai atau di bawah minimum"]
+            ]) +
             inventoryWarnings +
             panel("Resep terbaru", pharmacyRecipeTable(recipes.slice(0, 8)), "Resep dengan pilihan penebusan di apotek rumah sakit");
     }
@@ -38,7 +43,8 @@ function renderPharmacy() {
         const rows = mutations.map(function (item) { return '<tr><td>' + formatDateTime(item.created_at) + '</td><td>' + escapeHtml(item.nama_obat || ("Obat #" + item.id_obat)) + '</td><td>' + statusBadge(item.jenis_mutasi) + '</td><td>' + escapeHtml(item.jumlah) + '</td><td>' + escapeHtml(item.stok_sebelum) + " → " + escapeHtml(item.stok_sesudah) + '</td><td>' + escapeHtml(item.keterangan) + '</td></tr>'; });
         return '<div class="page-intro"><div><h2>Stok & mutasi</h2><p>Catat obat masuk, keluar, atau penyesuaian stok fisik.</p></div></div>' +
             panel("Catat mutasi stok", '<form id="stockForm" class="inline-form"><div><label class="field-label">Obat</label><select class="field" name="id_obat" required><option value="">Pilih obat</option>' + medicineOptions + '</select></div><div><label class="field-label">Jenis mutasi</label><select class="field" name="jenis_mutasi" required><option value="Masuk">Masuk</option><option value="Keluar">Keluar</option><option value="Penyesuaian">Penyesuaian</option></select></div><div><label class="field-label">Jumlah</label><input class="field" name="jumlah" type="number" min="1" required></div><div><label class="field-label">Keterangan</label><input class="field" name="keterangan" maxlength="255"></div><button class="button button-primary" type="submit">Simpan mutasi</button></form>') +
-            panel("Riwayat mutasi", table(["Waktu", "Obat", "Jenis", "Jumlah", "Perubahan stok", "Keterangan"], rows, "Belum ada riwayat mutasi."));
+            panel("Riwayat mutasi", table(["Waktu", "Obat", "Jenis", "Jumlah", "Perubahan stok", "Keterangan"], rows, "Belum ada riwayat mutasi.")) +
+            panel("Laporan pengeluaran obat", reportDownloadForm([{ id: "pengeluaran-obat", label: "Laporan pengeluaran obat" }]), "Unduh mutasi keluar pada rentang tanggal sebagai PDF atau Excel");
     }
     if (state.page === "pickup") {
         return '<div class="page-intro"><div><h2>Pengambilan obat</h2><p>Pindai QR pasien, cocokkan rincian obat, lalu konfirmasi setelah obat diserahkan.</p></div></div>' +

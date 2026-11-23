@@ -64,11 +64,14 @@ optional. To register an appointment, send `id_jadwal` and
 `tanggal_kunjungan` (`YYYY-MM-DD`) to `POST /api/pasien/pendaftaran`.
 
 Nurses record the patient's initial complaint, blood pressure, temperature,
-weight, height, and optional nursing note. Saving the assessment changes the
-appointment status from `Menunggu` to `Siap Diperiksa`. Doctors can then call
-the patient, review the nurse's notes in their queue and examination form, and
-continue with diagnosis and treatment. The patient is not marked ready for the
-doctor until the nurse's assessment has been saved.
+weight, height, respiration rate (1–80 breaths per minute), drug allergy, and
+optional nursing note. Saving the assessment changes the appointment status
+from `Menunggu` to `Siap Diperiksa` and stores the drug allergy on the patient
+record. That patient then appears in the doctor's examination list. The doctor
+can still call the patient from the queue. The examination form fills the
+complaint, vital signs, respiration rate, and drug allergy from that
+assessment, so the doctor continues with diagnosis and treatment. The patient
+is not listed for examination until the nurse's assessment has been saved.
 
 Back up the database, then run `php spark migrate` after updating the
 application. Migrations add nurse triage, patient call/room-entry notifications,
@@ -92,10 +95,13 @@ is not Web Push and does not notify patients while the browser is closed or
 offline.
 
 Patients can check in for a `Menunggu` appointment on the visit date from the
-appointment list. The system blocks overlapping patient bookings and doctor
-schedules, and shows an estimated entry time based on the queue number and the
-doctor's average examination duration. Appointment dates and operational
-timestamps use the `Asia/Jakarta` application timezone by default.
+appointment list. A patient may register with two or more doctors on the same
+day, even when those practice hours overlap. The system still blocks a second
+booking on the same schedule and overlapping sessions with the same doctor.
+Doctor schedule creation also blocks overlapping sessions for that doctor. The
+queue shows an estimated entry time based on the queue number and the doctor's
+average examination duration. Appointment dates and operational timestamps use
+the `Asia/Jakarta` application timezone by default.
 
 Doctors can maintain a patient's allergy and active-medication notes from the
 examination form while the patient's visit is `Dipanggil` or `Masuk Ruangan`.
@@ -158,17 +164,23 @@ locally under `public/assets/vendor/` and does not send QR data to a third party
 
 In a development or testing environment, run
 `php spark db:seed MedicFlowDemoSeeder` to add demo accounts, a doctor profile,
-a future Monday schedule, and a patient appointment. The seeder is idempotent
-and refuses to run in production. All demo accounts use the password
-`MedicFlowDemo#2026`:
+a future Monday schedule, a patient appointment, and a small active medicine
+catalog for doctor prescriptions. The seeder is idempotent
+and refuses to run in production. Every demo account uses the same password:
 
-| Role | Username |
-| --- | --- |
-| Admin | `demo_admin` |
-| Dokter | `demo_dokter` |
-| Perawat | `demo_perawat` |
-| Farmasi | `demo_farmasi` |
-| Pasien | `demo_pasien` |
+| Role | Username | Password |
+| --- | --- | --- |
+| Admin | `demo_admin` | `Demo#2026` |
+| Dokter umum | `demo_dokter` | `Demo#2026` |
+| Dokter gigi | `demo_dokter_gigi` | `Demo#2026` |
+| Dokter anak | `demo_dokter_anak` | `Demo#2026` |
+| Dokter kandungan | `demo_dokter_kandungan` | `Demo#2026` |
+| Dokter mata | `demo_dokter_mata` | `Demo#2026` |
+| Dokter THT | `demo_dokter_tht` | `Demo#2026` |
+| Dokter jantung | `demo_dokter_jantung` | `Demo#2026` |
+| Perawat | `demo_perawat` | `Demo#2026` |
+| Farmasi | `demo_farmasi` | `Demo#2026` |
+| Pasien | `demo_pasien` | `Demo#2026` |
 
 Use the admin dashboard's **Akun staf** page to review admin, doctor, nurse,
 and pharmacy accounts. The demo patient appointment starts in **Menunggu** so

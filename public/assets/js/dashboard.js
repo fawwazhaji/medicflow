@@ -18,8 +18,10 @@ async function loadRoleData() {
         ]);
         state.data = { queue: results[0].data || [], queueHistory: results[1].data || [], schedules: results[2].data || [], examinations: results[3].data || [], medicines: results[4].data || [] };
     } else if (state.role === "perawat") {
-        const result = await request("perawat/antrian");
-        state.data = { queue: result.data || [] };
+        const results = await Promise.all([
+            request("perawat/antrian"), request("perawat/antrian/riwayat")
+        ]);
+        state.data = { queue: results[0].data || [], queueHistory: results[1].data || [] };
     } else if (state.role === "farmasi") {
         const results = await Promise.all([
             request("farmasi/obat"), request("farmasi/resep"), request("farmasi/mutasi-stok")
@@ -30,17 +32,22 @@ async function loadRoleData() {
         const results = await Promise.all(resources.map(function (resource) { return request("admin/" + resource); }));
         const counts = {};
         resources.forEach(function (resource, index) { counts[resource] = (results[index].data || []).length; });
-        const staff = await Promise.all([request("admin/users"), request("admin/dokter"), request("admin/poliklinik")]);
-        const activityLogs = await request("admin/log-aktivitas");
+        const extra = await Promise.all([
+            request("admin/dokter"), request("admin/poliklinik"), request("admin/jadwal-dokter"),
+            request("admin/mutasi-stok"), request("admin/log-aktivitas")
+        ]);
         state.data = {
             counts: counts,
-            resource: "users",
+            resource: state.data.resource || "users",
             resourceItems: results[0].data || [],
-            staffUsers: staff[0].data || [],
-            staffDoctors: staff[1].data || [],
-            staffClinics: staff[2].data || [],
-            activityLogs: activityLogs.data || [],
-            staffRole: "semua"
+            staffUsers: results[0].data || [],
+            staffDoctors: extra[0].data || [],
+            staffClinics: extra[1].data || [],
+            schedules: extra[2].data || [],
+            medicines: results[3].data || [],
+            mutations: extra[3].data || [],
+            activityLogs: extra[4].data || [],
+            staffRole: state.data.staffRole || "semua"
         };
     }
 }
@@ -58,6 +65,10 @@ async function loadAdminResource(resource) {
 
 function renderPage() {
     renderNav();
+    document.querySelectorAll("dialog.schedule-dialog").forEach(function (node) {
+        if (typeof node.close === "function" && node.open) node.close();
+        node.remove();
+    });
     const content = document.getElementById("dashboardContent");
     if (!state.role || !roleMenus[state.role]) {
         content.innerHTML = '<div class="empty-state">Akun tidak memiliki peran yang dikenali.</div>';
@@ -114,11 +125,13 @@ async function refreshPatientUpdates() {
         }
         const appointmentForm = state.page === "appointments" && document.getElementById("appointmentForm");
         const hasUnsavedAppointment = appointmentForm && Object.keys(formObject(appointmentForm)).length > 0;
+        const historyFilterFocused = document.activeElement && document.activeElement.closest && document.activeElement.closest(".history-filters");
         const shouldRender = (state.page === "overview" && (appointmentsChanged || notificationsChanged)) ||
             (state.page === "notifications" && notificationsChanged) ||
             (state.page === "prescriptions" && (prescriptionsChanged || notificationsChanged)) ||
             (state.page === "appointments" && (appointmentsChanged || notificationsChanged) && !hasUnsavedAppointment);
-        if (shouldRender) renderPage();
+        if (shouldRender && historyFilterFocused && state.page === "appointments") renderAppointmentHistoryResults();
+        else if (shouldRender) renderPage();
     } catch (error) {
         if (!patientPollingErrorShown) showToast(error.message, true);
         patientPollingErrorShown = true;
@@ -191,7 +204,98 @@ function handleForm(id, callback) {
     });
 }
 
+function openScheduleDialog(editingAppointmentId, currentDate) {
+    const dialog = document.getElementById("scheduleMonthDialog");
+    const title = document.getElementById("scheduleMonthTitle");
+    const note = document.getElementById("scheduleDialogNote");
+    const dateWrap = document.getElementById("scheduleVisitDateWrap");
+    const dateInput = document.getElementById("scheduleVisitDate");
+    if (!dialog) return;
+    state.editingAppointmentId = editingAppointmentId || null;
+    const editing = Boolean(state.editingAppointmentId);
+    if (title) title.textContent = editing ? "Ubah dokter dan tanggal" : "Jadwal dokter";
+    if (note) note.textContent = editing ? "Pilih hari praktik, lalu isi tanggal kunjungan." : (note.dataset.defaultNote || note.textContent);
+    if (dateWrap) dateWrap.hidden = !editing;
+    if (dateInput) {
+        const today = localDateValue(new Date());
+        dateInput.min = today;
+        const incoming = String(currentDate || "").slice(0, 10);
+        dateInput.value = editing && /^\d{4}-\d{2}-\d{2}$/.test(incoming) && incoming >= today ? incoming : "";
+    }
+    if (dialog.parentElement !== document.body) document.body.appendChild(dialog);
+    if (typeof dialog.showModal === "function") dialog.showModal();
+}
+
+function bindAppointmentEditButtons(root) {
+    (root || document).querySelectorAll("[data-edit-appointment]").forEach(function (button) {
+        button.addEventListener("click", function () {
+            openScheduleDialog(button.dataset.editAppointment, button.dataset.visitDate);
+        });
+    });
+}
+
+function bindReportDownloads() {
+    const form = document.getElementById("reportDownloadForm");
+    if (!form) return;
+    form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        const pdfButton = form.querySelector('[data-download-report="pdf"]');
+        if (pdfButton) pdfButton.click();
+    });
+    form.querySelectorAll("[data-download-report]").forEach(function (button) {
+        button.addEventListener("click", async function () {
+            const from = document.getElementById("reportFrom").value;
+            const to = document.getElementById("reportTo").value;
+            const kind = document.getElementById("reportKind").value;
+            if (!from || !to || from > to) {
+                showToast("Rentang tanggal tidak valid.", true);
+                return;
+            }
+            const prefix = state.role === "farmasi" ? "farmasi" : "admin";
+            button.disabled = true;
+            try {
+                await downloadFile(prefix + "/laporan/" + encodeURIComponent(kind) + "?dari=" + encodeURIComponent(from) + "&sampai=" + encodeURIComponent(to) + "&format=" + encodeURIComponent(button.dataset.downloadReport), "laporan." + button.dataset.downloadReport);
+                showToast("Laporan berhasil diunduh.");
+            } catch (error) {
+                showToast(error.message, true);
+            } finally {
+                button.disabled = false;
+            }
+        });
+    });
+}
+
+function bindSchedulePicker() {
+    const opener = document.getElementById("openSchedulePicker");
+    const dialog = document.getElementById("scheduleMonthDialog");
+    if (!opener || !dialog) return;
+    opener.addEventListener("click", function () {
+        openScheduleDialog(null);
+    });
+    const closeButton = dialog.querySelector("[data-close-schedule]");
+    if (closeButton) {
+        closeButton.addEventListener("click", function () {
+            if (typeof dialog.close === "function") dialog.close();
+        });
+    }
+    dialog.addEventListener("click", function (event) {
+        if (event.target === dialog && typeof dialog.close === "function") dialog.close();
+    });
+    dialog.addEventListener("close", function () {
+        state.editingAppointmentId = null;
+        const title = document.getElementById("scheduleMonthTitle");
+        const note = document.getElementById("scheduleDialogNote");
+        const dateWrap = document.getElementById("scheduleVisitDateWrap");
+        const dateInput = document.getElementById("scheduleVisitDate");
+        if (title) title.textContent = "Jadwal dokter";
+        if (note) note.textContent = note.dataset.defaultNote || note.textContent;
+        if (dateWrap) dateWrap.hidden = true;
+        if (dateInput) dateInput.value = "";
+    });
+}
+
 function bindPageActions() {
+    bindReportDownloads();
     if (state.role === "pasien") {
         document.querySelectorAll("[data-enable-device-notifications]").forEach(function (button) {
             button.addEventListener("click", async function () {
@@ -210,24 +314,85 @@ function bindPageActions() {
                 }
             });
         });
+        document.querySelectorAll("[data-pick-schedule]").forEach(function (button) {
+            button.addEventListener("click", async function () {
+                const select = document.getElementById("scheduleId");
+                const dayField = document.getElementById("scheduleDay");
+                const opener = document.getElementById("openSchedulePicker");
+                const dialog = document.getElementById("scheduleMonthDialog");
+                const scheduleId = button.dataset.pickSchedule;
+                const dayName = button.dataset.scheduleDay || "";
+                if (state.editingAppointmentId) {
+                    const editDate = document.getElementById("scheduleVisitDate");
+                    const date = editDate ? editDate.value : "";
+                    if (!date) {
+                        showToast("Isi tanggal kunjungan terlebih dahulu.", true);
+                        return;
+                    }
+                    if (date < localDateValue(new Date())) {
+                        showToast("Tanggal kunjungan tidak boleh sebelum hari ini.", true);
+                        return;
+                    }
+                    if (!visitDateMatchesDay(date, dayName)) {
+                        showToast("Tanggal kunjungan harus jatuh pada hari " + dayName + ".", true);
+                        return;
+                    }
+                    button.disabled = true;
+                    try {
+                        const result = await request("pasien/pendaftaran/" + state.editingAppointmentId, {
+                            method: "PUT",
+                            body: { id_jadwal: Number(scheduleId), tanggal_kunjungan: date }
+                        });
+                        state.editingAppointmentId = null;
+                        if (dialog && typeof dialog.close === "function" && dialog.open) dialog.close();
+                        await refreshPage(result.message || "Dokter dan tanggal kunjungan berhasil diubah.");
+                    } catch (error) {
+                        showToast(error.message, true);
+                        button.disabled = false;
+                    }
+                    return;
+                }
+                if (select) select.value = scheduleId;
+                if (dayField) dayField.value = dayName;
+                updateVisitDateHint(dayName);
+                showScheduleChoice({
+                    doctor: button.dataset.doctor,
+                    clinic: button.dataset.clinic,
+                    when: button.dataset.when,
+                    hours: button.dataset.hours
+                });
+                if (opener) opener.textContent = "Ubah jadwal";
+                if (dialog) {
+                    dialog.querySelectorAll(".schedule-slot").forEach(function (slot) { slot.classList.remove("is-selected"); });
+                    const slot = button.closest(".schedule-slot");
+                    if (slot) slot.classList.add("is-selected");
+                    if (typeof dialog.close === "function" && dialog.open) dialog.close();
+                }
+                showToast("Jadwal dipilih. Isi tanggal kunjungan, lalu daftar antrean.");
+            });
+        });
+        bindSchedulePicker();
+        bindAppointmentEditButtons(document);
         handleForm("appointmentForm", async function (form) {
             const data = formObject(form);
+            const dayName = (document.getElementById("scheduleDay") || {}).value || "";
+            if (!data.id_jadwal) {
+                throw new Error("Pilih jadwal dokter terlebih dahulu.");
+            }
+            if (!data.tanggal_kunjungan) {
+                throw new Error("Isi tanggal kunjungan.");
+            }
+            if (data.tanggal_kunjungan < localDateValue(new Date())) {
+                throw new Error("Tanggal kunjungan tidak boleh sebelum hari ini.");
+            }
+            if (!visitDateMatchesDay(data.tanggal_kunjungan, dayName)) {
+                throw new Error("Tanggal kunjungan harus jatuh pada hari " + dayName + ".");
+            }
             data.id_jadwal = Number(data.id_jadwal);
             await request("pasien/pendaftaran", { method: "POST", body: data });
             await refreshPage("Pendaftaran antrean berhasil dibuat.");
         });
-        document.querySelectorAll("[data-check-in]").forEach(function (button) {
-            button.addEventListener("click", async function () {
-                button.disabled = true;
-                try {
-                    const result = await request("pasien/pendaftaran/" + button.dataset.checkIn + "/check-in", { method: "POST", body: {} });
-                    await refreshPage(result.message || "Check-in berhasil.");
-                } catch (error) {
-                    showToast(error.message, true);
-                    button.disabled = false;
-                }
-            });
-        });
+        bindPatientHistoryFilters();
         handleForm("profileForm", async function (form) {
             await request("pasien/me", { method: "PUT", body: formObject(form) });
             await refreshPage("Profil berhasil diperbarui.");
@@ -277,13 +442,17 @@ function bindPageActions() {
                 return String(entry.id_pendaftaran) === String(examinationPatient && examinationPatient.value);
             });
             if (!appointment) throw new Error("Pilih pasien yang akan diperiksa terlebih dahulu.");
+            const drugAllergy = form.elements.namedItem("alergi_obat").value;
             await request("dokter/kunjungan/" + appointment.id_pendaftaran + "/riwayat-klinis", {
                 method: "PUT",
                 body: {
                     alergi: form.elements.namedItem("alergi").value,
+                    alergi_obat: drugAllergy,
                     obat_aktif: form.elements.namedItem("obat_aktif").value
                 }
             });
+            const examinationAllergy = document.querySelector('#examinationForm [name="alergi_obat"]');
+            if (examinationAllergy) examinationAllergy.value = drugAllergy;
             setBusy(form.querySelector('button[type="submit"]'), false);
             showToast("Riwayat klinis pasien berhasil diperbarui.", false);
         });
@@ -304,14 +473,47 @@ function bindPageActions() {
                 } catch (error) { showToast(error.message, true); select.disabled = false; }
             });
         });
-        document.querySelectorAll("[data-schedule-toggle]").forEach(function (button) {
-            button.addEventListener("click", async function () {
-                button.disabled = true;
-                try {
-                    await request("dokter/jadwal/" + button.dataset.scheduleToggle, { method: "PUT", body: { is_active: String(button.dataset.active) === "1" ? 0 : 1 } });
-                    await refreshPage("Jadwal berhasil diperbarui.");
-                } catch (error) { showToast(error.message, true); button.disabled = false; }
+        document.querySelectorAll("[data-edit-schedule]").forEach(function (button) {
+            button.addEventListener("click", function () {
+                const dialog = document.getElementById("scheduleEditDialog");
+                const form = document.getElementById("scheduleEditForm");
+                if (!dialog || !form) return;
+                form.elements.namedItem("id_jadwal").value = button.dataset.editSchedule;
+                form.elements.namedItem("hari").value = button.dataset.day;
+                form.elements.namedItem("jam_mulai").value = button.dataset.start;
+                form.elements.namedItem("jam_selesai").value = button.dataset.end;
+                form.elements.namedItem("kuota_maksimal").value = button.dataset.quota;
+                form.elements.namedItem("is_active").value = button.dataset.active;
+                const clinic = document.getElementById("scheduleEditClinic");
+                if (clinic) clinic.textContent = button.dataset.clinic || "Jadwal praktik poli Anda";
+                if (dialog.parentElement !== document.body) document.body.appendChild(dialog);
+                if (typeof dialog.showModal === "function") dialog.showModal();
             });
+        });
+        const closeScheduleEdit = document.querySelector("[data-close-schedule-edit]");
+        if (closeScheduleEdit) {
+            closeScheduleEdit.addEventListener("click", function () {
+                const dialog = document.getElementById("scheduleEditDialog");
+                if (dialog && typeof dialog.close === "function") dialog.close();
+            });
+        }
+        handleForm("scheduleEditForm", async function (form) {
+            const data = formObject(form);
+            const id = data.id_jadwal;
+            delete data.id_jadwal;
+            data.kuota_maksimal = Number(data.kuota_maksimal);
+            data.is_active = Number(data.is_active);
+            await request("dokter/jadwal/" + id, { method: "PUT", body: data });
+            const dialog = document.getElementById("scheduleEditDialog");
+            if (dialog && typeof dialog.close === "function" && dialog.open) dialog.close();
+            await refreshPage("Jadwal praktik berhasil diubah.");
+        });
+        handleForm("contactAdminForm", async function (form) {
+            const data = formObject(form);
+            await request("dokter/hubungi-admin", { method: "POST", body: data });
+            form.reset();
+            setBusy(form.querySelector('button[type="submit"]'), false);
+            showToast("Pesan terkirim ke admin.", false);
         });
         handleForm("scheduleForm", async function (form) {
             const data = formObject(form);
@@ -322,7 +524,7 @@ function bindPageActions() {
         handleForm("examinationForm", async function (form) {
             const data = formObject(form);
             data.id_pendaftaran = Number(data.id_pendaftaran);
-            ["suhu_tubuh", "berat_badan", "tinggi_badan"].forEach(function (field) { if (data[field]) data[field] = Number(data[field]); });
+            ["suhu_tubuh", "berat_badan", "tinggi_badan", "laju_respirasi"].forEach(function (field) { if (data[field]) data[field] = Number(data[field]); });
             if (data.id_obat) {
                 data.resep = {
                     detail: [{
@@ -349,7 +551,7 @@ function bindPageActions() {
                 setBusy(button, true, "Menyimpan...");
                 try {
                     const data = formObject(form);
-                    ["suhu_tubuh", "berat_badan", "tinggi_badan"].forEach(function (field) {
+                    ["suhu_tubuh", "berat_badan", "tinggi_badan", "laju_respirasi"].forEach(function (field) {
                         data[field] = Number(data[field]);
                     });
                     await request("perawat/antrian/" + form.dataset.triageForm + "/triase", {
@@ -490,18 +692,199 @@ function bindPageActions() {
         });
     }
     if (state.role === "admin" && state.page === "staff") {
-        handleForm("doctorAccountForm", async function (form) {
+        const roleField = document.getElementById("accountRole");
+        const showAccountExtras = function () {
+            const role = roleField ? roleField.value : "";
+            const doctorFields = document.getElementById("accountDoctorFields");
+            const patientFields = document.getElementById("accountPatientFields");
+            if (doctorFields) doctorFields.hidden = role !== "dokter" || !!document.getElementById("accountId").value;
+            if (patientFields) patientFields.hidden = role !== "pasien" || !!document.getElementById("accountId").value;
+        };
+        if (roleField) roleField.addEventListener("change", showAccountExtras);
+        showAccountExtras();
+        document.getElementById("accountFormReset").addEventListener("click", function () {
+            const form = document.getElementById("adminAccountForm");
+            form.reset();
+            document.getElementById("accountId").value = "";
+            document.getElementById("accountPassword").required = true;
+            showAccountExtras();
+        });
+        document.querySelectorAll("[data-edit-account]").forEach(function (button) {
+            button.addEventListener("click", function () {
+                const user = (state.data.staffUsers || []).find(function (item) { return String(item.id_user) === button.dataset.editAccount; });
+                const form = document.getElementById("adminAccountForm");
+                if (!user || !form) return;
+                form.elements.namedItem("id_user").value = user.id_user;
+                form.elements.namedItem("nama_lengkap").value = user.nama_lengkap || "";
+                form.elements.namedItem("username").value = user.username || "";
+                form.elements.namedItem("no_telepon").value = user.no_telepon || "";
+                form.elements.namedItem("role").value = user.role;
+                form.elements.namedItem("is_active").value = String(user.is_active) === "1" ? "1" : "0";
+                form.elements.namedItem("password").value = "";
+                form.elements.namedItem("password").required = false;
+                showAccountExtras();
+                form.scrollIntoView({ behavior: "smooth", block: "center" });
+            });
+        });
+        document.querySelectorAll("[data-delete-account]").forEach(function (button) {
+            button.addEventListener("click", async function () {
+                if (!window.confirm("Hapus akun ini? Akun yang masih punya data klinik tidak dapat dihapus.")) return;
+                button.disabled = true;
+                try {
+                    await request("admin/users/" + button.dataset.deleteAccount, { method: "DELETE" });
+                    await refreshPage("Akun berhasil dihapus.");
+                } catch (error) { showToast(error.message, true); button.disabled = false; }
+            });
+        });
+        handleForm("adminAccountForm", async function (form) {
             const data = formObject(form);
-            data.id_poli = Number(data.id_poli);
-            data.rata_waktu_periksa_menit = Number(data.rata_waktu_periksa_menit);
-            await request("admin/dokter/registrasi", { method: "POST", body: data });
-            await refreshPage("Akun dokter berhasil dibuat.");
+            const id = data.id_user;
+            delete data.id_user;
+            data.is_active = Number(data.is_active);
+            if (!data.password) delete data.password;
+            if (id) {
+                await request("admin/users/" + id, { method: "PUT", body: data });
+                await refreshPage("Akun berhasil diubah.");
+                return;
+            }
+            if (data.role === "dokter") {
+                await request("admin/dokter/registrasi", { method: "POST", body: {
+                    nama_dokter: data.nama_lengkap, username: data.username, password: data.password,
+                    no_telepon: data.no_telepon, spesialisasi: data.spesialisasi,
+                    id_poli: Number(data.id_poli), rata_waktu_periksa_menit: Number(data.rata_waktu_periksa_menit || 15)
+                } });
+            } else {
+                const created = await request("admin/users", { method: "POST", body: data });
+                if (data.role === "pasien") {
+                    await request("admin/pasien", { method: "POST", body: {
+                        id_user: created.id_user, nik: data.nik, nama_lengkap: data.nama_lengkap,
+                        tanggal_lahir: data.tanggal_lahir, jenis_kelamin: data.jenis_kelamin, no_telepon: data.no_telepon
+                    } });
+                }
+            }
+            await refreshPage("Akun berhasil dibuat.");
         });
         document.getElementById("staffRoleFilter").addEventListener("change", function (event) {
             state.data.staffRole = event.target.value;
             renderPage();
         });
     }
+    if (state.role === "admin" && state.page === "schedules") {
+        const resetSchedule = function () {
+            const form = document.getElementById("adminScheduleForm");
+            form.reset();
+            document.getElementById("adminScheduleId").value = "";
+            document.getElementById("adminScheduleQuota").value = "20";
+        };
+        document.getElementById("adminScheduleReset").addEventListener("click", resetSchedule);
+        document.querySelectorAll("[data-admin-edit-schedule]").forEach(function (button) {
+            button.addEventListener("click", function () {
+                const item = (state.data.schedules || []).find(function (row) { return String(row.id_jadwal) === button.dataset.adminEditSchedule; });
+                const form = document.getElementById("adminScheduleForm");
+                if (!item || !form) return;
+                form.elements.namedItem("id_jadwal").value = item.id_jadwal;
+                form.elements.namedItem("id_dokter").value = item.id_dokter;
+                form.elements.namedItem("hari").value = item.hari;
+                form.elements.namedItem("jam_mulai").value = String(item.jam_mulai).slice(0, 5);
+                form.elements.namedItem("jam_selesai").value = String(item.jam_selesai).slice(0, 5);
+                form.elements.namedItem("kuota_maksimal").value = item.kuota_maksimal;
+                form.elements.namedItem("is_active").value = String(item.is_active) === "1" ? "1" : "0";
+                form.scrollIntoView({ behavior: "smooth", block: "center" });
+            });
+        });
+        document.querySelectorAll("[data-admin-delete-schedule]").forEach(function (button) {
+            button.addEventListener("click", async function () {
+                if (!window.confirm("Hapus jadwal ini?")) return;
+                button.disabled = true;
+                try {
+                    await request("admin/jadwal-dokter/" + button.dataset.adminDeleteSchedule, { method: "DELETE" });
+                    await refreshPage("Jadwal berhasil dihapus.");
+                } catch (error) { showToast(error.message, true); button.disabled = false; }
+            });
+        });
+        handleForm("adminScheduleForm", async function (form) {
+            const data = formObject(form);
+            const id = data.id_jadwal;
+            delete data.id_jadwal;
+            data.id_dokter = Number(data.id_dokter);
+            data.kuota_maksimal = Number(data.kuota_maksimal);
+            data.is_active = Number(data.is_active);
+            await request("admin/jadwal-dokter" + (id ? "/" + id : ""), { method: id ? "PUT" : "POST", body: data });
+            await refreshPage(id ? "Jadwal berhasil diubah." : "Jadwal berhasil ditambahkan.");
+        });
+    }
+    if (state.role === "admin" && state.page === "stock") {
+        document.getElementById("adminMedicineReset").addEventListener("click", function () {
+            document.getElementById("adminMedicineForm").reset();
+            document.getElementById("adminMedicineId").value = "";
+        });
+        document.querySelectorAll("[data-admin-edit-medicine]").forEach(function (button) {
+            button.addEventListener("click", function () {
+                const item = (state.data.medicines || []).find(function (row) { return String(row.id_obat) === button.dataset.adminEditMedicine; });
+                const form = document.getElementById("adminMedicineForm");
+                if (!item || !form) return;
+                form.elements.namedItem("id_obat").value = item.id_obat;
+                form.elements.namedItem("nama_obat").value = item.nama_obat || "";
+                form.elements.namedItem("kode_kemenkes").value = item.kode_kemenkes || "";
+                form.elements.namedItem("satuan").value = item.satuan || "";
+                form.elements.namedItem("stok_minimum").value = item.stok_minimum;
+                form.elements.namedItem("harga").value = item.harga;
+                form.elements.namedItem("is_active").value = String(item.is_active) === "1" ? "1" : "0";
+                form.scrollIntoView({ behavior: "smooth", block: "center" });
+            });
+        });
+        document.querySelectorAll("[data-admin-delete-medicine]").forEach(function (button) {
+            button.addEventListener("click", async function () {
+                if (!window.confirm("Hapus obat ini?")) return;
+                button.disabled = true;
+                try {
+                    await request("admin/obat/" + button.dataset.adminDeleteMedicine, { method: "DELETE" });
+                    await refreshPage("Obat berhasil dihapus.");
+                } catch (error) { showToast(error.message, true); button.disabled = false; }
+            });
+        });
+        handleForm("adminMedicineForm", async function (form) {
+            const data = formObject(form);
+            const id = data.id_obat;
+            delete data.id_obat;
+            data.stok_minimum = Number(data.stok_minimum);
+            data.harga = Number(data.harga || 0);
+            data.is_active = Number(data.is_active);
+            data.jenis_obat = "Jadi";
+            data.cover_bpjs = 0;
+            if (!id) data.stok_rs = 0;
+            await request("admin/obat" + (id ? "/" + id : ""), { method: id ? "PUT" : "POST", body: data });
+            await refreshPage(id ? "Data obat berhasil diubah." : "Obat berhasil ditambahkan.");
+        });
+        handleForm("adminStockForm", async function (form) {
+            const data = formObject(form);
+            data.id_obat = Number(data.id_obat);
+            data.jumlah = Number(data.jumlah);
+            await request("admin/mutasi-stok", { method: "POST", body: data });
+            await refreshPage("Stok obat berhasil diperbarui.");
+        });
+    }
+}
+
+function setNavigationOpen(open) {
+    document.body.classList.toggle("nav-open", open);
+    const toggle = document.getElementById("menuToggle");
+    if (!toggle) return;
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    toggle.setAttribute("aria-label", open ? "Tutup menu" : "Buka menu");
+}
+
+function closeNavigation() {
+    setNavigationOpen(false);
+}
+
+function bindLogout(button) {
+    if (!button) return;
+    button.addEventListener("click", function () {
+        sessionStorage.removeItem(tokenKey);
+        sessionStorage.removeItem(userKey);
+        window.location.assign(window.MEDICFLOW_LOGIN_URL);
+    });
 }
 
 async function initializeDashboard() {
@@ -520,10 +903,21 @@ async function initializeDashboard() {
         document.getElementById("userRole").textContent = roleLabels[state.role];
         document.getElementById("userAvatar").textContent = (state.user.username || roleLabels[state.role]).slice(0, 1).toUpperCase();
         document.getElementById("todayLabel").textContent = new Intl.DateTimeFormat("id-ID", { dateStyle: "full" }).format(new Date());
-        document.getElementById("logoutButton").addEventListener("click", function () {
-            sessionStorage.removeItem(tokenKey);
-            sessionStorage.removeItem(userKey);
-            window.location.assign(window.MEDICFLOW_LOGIN_URL);
+        bindLogout(document.getElementById("logoutButton"));
+        bindLogout(document.getElementById("logoutButtonTop"));
+        const menuToggle = document.getElementById("menuToggle");
+        const sidebarBackdrop = document.getElementById("sidebarBackdrop");
+        if (menuToggle) {
+            menuToggle.addEventListener("click", function () {
+                setNavigationOpen(!document.body.classList.contains("nav-open"));
+            });
+        }
+        if (sidebarBackdrop) sidebarBackdrop.addEventListener("click", closeNavigation);
+        document.addEventListener("keydown", function (event) {
+            if (event.key === "Escape") closeNavigation();
+        });
+        window.addEventListener("resize", function () {
+            if (window.innerWidth > 900) closeNavigation();
         });
         if (state.role === "pasien" && "serviceWorker" in navigator && window.isSecureContext) {
             navigator.serviceWorker.register("/service-worker.js")
